@@ -9,16 +9,6 @@ terraform {
 }
 
 
-
-
-# data "aws_vpc" "default" {
-#     default = true
-# }
-
-# data "aws_subnet_ids" "default" {
-#     vpc_id = data.aws_vpc.default.id
-# }
-
 resource "aws_security_group" "ha_instance" {
     name = "terraform-ha-sg-instance"
     description = "Morpheus HA Server SG"
@@ -52,6 +42,15 @@ resource "aws_security_group_rule" "ingress_custom_http" {
         security_group_id = aws_security_group.ha_instance.id
 }
 
+resource "aws_security_group_rule" "temp_ingress_lb_to_instance" {
+        type = "ingress"
+        from_port = var.server_port
+        to_port = var.server_port
+        protocol = "tcp"
+        cidr_blocks = [ "0.0.0.0/0" ]
+        security_group_id = aws_security_group.ha_instance.id
+}
+
 resource "aws_security_group_rule" "egress_allow_all" {
         type = "egress"
         from_port = 0
@@ -63,121 +62,121 @@ resource "aws_security_group_rule" "egress_allow_all" {
 
 
 
-# resource "aws_launch_configuration" "example" {
-#   image_id = "ami-0c55b159cbfafe1f0"
-#   instance_type = "t2.micro"
-#   security_groups = [ aws_security_group.instance.id ]
-#   key_name = "MyKeyPair"
+resource "aws_launch_configuration" "example" {
+  image_id = var.instance_ami
+  instance_type = "t2.micro"
+  security_groups = [ aws_security_group.ha_instance.id ]
+  key_name = var.instance_key_name
 
-#   root_block_device  {
-#       volume_size = 30
-#       volume_type = "gp2"
-#   }
+  root_block_device  {
+      volume_size = 30
+      volume_type = "gp2"
+  }
 
-#   user_data = <<-EOF
-#   #!/bin/bash
-#   echo "Hello World!" > index.html
-#   nohup busybox httpd -f -p ${var.server_port} &
-#   EOF
+  user_data = <<-EOF
+  #!/bin/bash
+  echo "Hello World!" > index.html
+  nohup busybox httpd -f -p ${var.server_port} &
+  EOF
 
 
-#   lifecycle {
-#     create_before_destroy = true
-#   }
+  lifecycle {
+    create_before_destroy = true
+  }
 
-# }
-#  resource "aws_autoscaling_group" "example" {
-#      min_size = 2
-#      max_size = 4
+}
+ resource "aws_autoscaling_group" "example" {
+     min_size = 2
+     max_size = 4
 
-#      launch_configuration = aws_launch_configuration.example.name
-#      vpc_zone_identifier = data.aws_subnet_ids.default.ids
-#      target_group_arns = [ aws_lb_target_group.asg.arn ]
-#      health_check_type = "ELB"
+     launch_configuration = aws_launch_configuration.example.name
+     vpc_zone_identifier = data.terraform_remote_state.vpc.outputs.public_subnet_ids.ids
+     target_group_arns = [ aws_lb_target_group.asg.arn ]
+     health_check_type = "ELB"
 
-#      tag {
-#          key = "Name"
-#          value = "terraform-asg_example"
-#          propagate_at_launch = true
-#      }
-#  }
+     tag {
+         key = "Name"
+         value = "terraform-asg_example"
+         propagate_at_launch = true
+     }
+ }
 
-# resource "aws_lb" "example" {
-#     name = "tf-alb-example"
-#     load_balancer_type = "application"
-#     subnets = data.aws_subnet_ids.default.ids
-#     security_groups = [ aws_security_group.alb.id ]
+resource "aws_lb" "example" {
+    name = "tf-alb-example"
+    load_balancer_type = "application"
+    subnets = data.terraform_remote_state.vpc.outputs.public_subnet_ids.ids
+    security_groups = [ aws_security_group.alb.id ]
 
-# }
+}
 
-# resource "aws_lb_listener" "http" {
-#     load_balancer_arn = aws_lb.example.arn
-#     port = 80
-#     protocol = "HTTP"
+resource "aws_lb_listener" "http" {
+    load_balancer_arn = aws_lb.example.arn
+    port = 80
+    protocol = "HTTP"
 
-#     default_action {
-#       type = "fixed-response"
+    default_action {
+      type = "fixed-response"
 
-#       fixed_response {
-#           content_type = "text/plain"
-#           message_body = "404: Page not found by test ALB"
-#           status_code = 404
-#       }
-#     }
-# }
+      fixed_response {
+          content_type = "text/plain"
+          message_body = "404: Page not found by test ALB"
+          status_code = 404
+      }
+    }
+}
 
-# resource "aws_lb_listener_rule" "asg" {
-#     listener_arn = aws_lb_listener.http.arn
-#     priority = 100
+resource "aws_lb_listener_rule" "asg" {
+    listener_arn = aws_lb_listener.http.arn
+    priority = 100
 
-#     condition {
-#         path_pattern {
-#             values = ["*"]
-#         }
-#     }
+    condition {
+        path_pattern {
+            values = ["*"]
+        }
+    }
 
-#     action  {
-#         type = "forward"
-#         target_group_arn = aws_lb_target_group.asg.arn
+    action  {
+        type = "forward"
+        target_group_arn = aws_lb_target_group.asg.arn
 
-#     }
-# }
+    }
+}
 
-# resource "aws_security_group" "alb" {
-#     name = "tf-example-alb-asg"
+resource "aws_security_group" "alb" {
+    name = "tf-example-alb-asg"
 
-#     ingress {
-#         from_port = 80
-#         to_port = 80
-#         protocol = "tcp"
-#         cidr_blocks = ["0.0.0.0/0"]
-#     }
+    ingress {
+        from_port = 80
+        to_port = 80
+        protocol = "tcp"
+        cidr_blocks = ["0.0.0.0/0"]
+    }
 
-#     egress {
-#         from_port = 0
-#         to_port = 0
-#         protocol = "-1"
-#         cidr_blocks = ["0.0.0.0/0"]
-#     }
+    egress {
+        from_port = 0
+        to_port = 0
+        protocol = "-1"
+        cidr_blocks = ["0.0.0.0/0"]
+    }
 
-# }
+}
 
-# resource "aws_lb_target_group" "asg" {
-#     name = "tf-asg-example"
-#     port = var.server_port
-#     protocol = "HTTP"
-#     vpc_id = data.aws_vpc.default.id
+resource "aws_lb_target_group" "asg" {
+    name = "tf-asg-example"
+    port = var.server_port
+    protocol = "HTTP"
+    vpc_id = data.terraform_remote_state.vpc.outputs.current_vpc_id
 
-#     health_check {
-#         path = "/"
-#         protocol = "HTTP"
-#         matcher = "200"
-#         interval = 15
-#         timeout = 3
-#         healthy_threshold = 2
-#         unhealthy_threshold = 2
-#     }
-# }
+    health_check {
+        path = "/"
+        protocol = "HTTP"
+        matcher = "200"
+        interval = 15
+        timeout = 3
+        healthy_threshold = 2
+        unhealthy_threshold = 2
+    }
+}
 
 
 data "template_file" "user_data" {

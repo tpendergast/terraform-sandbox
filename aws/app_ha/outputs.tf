@@ -40,6 +40,6 @@ output "instance_type" {
 #     value = aws_instance.example[1].public_dns
 # }
 
-# output "alb_dns_name" {
-#   value = aws_lb.example.dns_name
-# }
+output "alb_dns_name" {
+  value = aws_lb.example.dns_name
+}
